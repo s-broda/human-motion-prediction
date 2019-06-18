@@ -35,8 +35,8 @@ tf.app.flags.DEFINE_integer("seq_length_out", 10, "Number of frames that the dec
 tf.app.flags.DEFINE_boolean("omit_one_hot", False, "Whether to remove one-hot encoding from the data")
 tf.app.flags.DEFINE_boolean("residual_velocities", False, "Add a residual connection that effectively models velocities")
 # Directories
-tf.app.flags.DEFINE_string("data_dir", os.path.normpath("./data/h3.6m/dataset"), "Data directory")
-tf.app.flags.DEFINE_string("train_dir", os.path.normpath("./experiments/"), "Training directory.")
+tf.app.flags.DEFINE_string("data_dir", os.path.normpath("../data/h3.6m/dataset"), "Data directory")
+tf.app.flags.DEFINE_string("train_dir", os.path.normpath("../experiments/"), "Training directory.")
 
 tf.app.flags.DEFINE_string("action","all", "The action to train on. all means all the actions, all_periodic means walking, eating and smoking")
 tf.app.flags.DEFINE_string("loss_to_use","sampling_based", "The type of loss to use, supervised or sampling_based")
