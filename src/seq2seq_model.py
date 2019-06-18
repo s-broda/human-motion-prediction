@@ -16,7 +16,32 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 import rnn_cell_extensions # my extensions of the tf repos
 import data_utils
-
+def to_rotmat(inputs):
+    """
+    Convert to rotation matrix format.
+    """
+    shape = tf.shape(inputs) # 16, 143, 45
+    rvecs = tf.reshape(inputs, (-1, 3)) # 34320, 3
+    thetas = tf.norm(rvecs, axis=1, keepdims=True) # 34320, 3
+    is_zero = tf.equal(tf.squeeze(thetas), 0.0)
+    u = rvecs / thetas # 34320, 3
+        
+    # Each K is the cross product matrix of unit axis vectors
+    # pyformat: disable
+    zero = tf.zeros_like(rvecs[:, 0])  # for broadcasting
+    Ks_1 = tf.stack([  zero   , -u[:, 2],  u[:, 1] ], axis=1)  # row 1
+    Ks_2 = tf.stack([  u[:, 2],  zero   , -u[:, 0] ], axis=1)  # row 2
+    Ks_3 = tf.stack([ -u[:, 1],  u[:, 0],  zero    ], axis=1)  # row 3
+    # pyformat: enable
+    
+    Ks = tf.stack([Ks_1, Ks_2, Ks_3], axis=1)                  # stack rows
+    Rs = tf.eye(3) + \
+         tf.sin(thetas)[..., tf.newaxis] * Ks + \
+         (1 - tf.cos(thetas)[..., tf.newaxis]) * tf.matmul(Ks, Ks)
+    # Avoid returning NaNs where division by zero happened
+    eyes = tf.zeros_like(Rs) + tf.eye(3)
+    return tf.reshape(tf.where(is_zero,
+                               eyes, Rs), (shape[0], shape[1], shape[2]*3))
 class Seq2SeqModel(object):
   """Sequence-to-sequence model for human motion prediction"""
 
@@ -35,6 +60,7 @@ class Seq2SeqModel(object):
                number_of_actions,
                one_hot=True,
                residual_velocities=False,
+               reg_lambda=0.0,
                dtype=tf.float32):
     """Create the model.
 
@@ -75,9 +101,11 @@ class Seq2SeqModel(object):
     self.rnn_size = rnn_size
     self.batch_size = batch_size
     self.learning_rate = tf.Variable( float(learning_rate), trainable=False, dtype=dtype )
-    self.learning_rate_decay_op = self.learning_rate.assign( self.learning_rate * learning_rate_decay_factor )
     self.global_step = tf.Variable(0, trainable=False)
-
+    dec_lr = tf.train.exponential_decay(learning_rate, self.global_step,
+                                           512000/self.batch_size, learning_rate_decay_factor)
+    self.learning_rate_decay_op = self.learning_rate.assign( dec_lr )
+    
     # === Create the RNN that will keep the state ===
     print('rnn_size = {0}'.format( rnn_size ))
     cell = tf.contrib.rnn.GRUCell( self.rnn_size )
@@ -109,7 +137,7 @@ class Seq2SeqModel(object):
       dec_out = tf.split(dec_out, target_seq_len, axis=0)
 
     # === Add space decoder ===
-    cell = rnn_cell_extensions.LinearSpaceDecoderWrapper( cell, self.input_size )
+    cell = rnn_cell_extensions.LinearSpaceDecoderWrapper( cell, self.input_size, reg_lambda )
 
     # Finally, wrap everything in a residual layer if we want to model velocities
     if residual_velocities:
@@ -138,20 +166,37 @@ class Seq2SeqModel(object):
       outputs, self.states = tf.contrib.legacy_seq2seq.tied_rnn_seq2seq( enc_in, dec_in, cell, loop_function=lf )
     else:
       raise(ValueError, "Uknown architecture: %s" % architecture )
-
     self.outputs = outputs
-
+    rs_outputs = tf.concat(outputs, axis=0)
+    rs_outputs = tf.reshape(rs_outputs, [self.target_seq_len, -1, self.input_size])
+    rs_outputs = tf.transpose(rs_outputs, [1, 0, 2])
+    rs_outputs = rs_outputs[:, :, :self.HUMAN_SIZE]
+    
+    rs_dec_out = tf.concat(dec_out, axis=0)
+    rs_dec_out = tf.reshape(rs_dec_out, [self.target_seq_len, -1, self.input_size])
+    rs_dec_out = tf.transpose(rs_dec_out, [1, 0, 2])
+    rs_dec_out = rs_dec_out[:, :, :self.HUMAN_SIZE]
+    
+    
     with tf.name_scope("loss_angles"):
-      loss_angles = tf.reduce_mean(tf.square(tf.subtract(dec_out, outputs)))
-
-    self.loss         = loss_angles
+      #loss_angles = tf.reduce_mean(tf.square(tf.subtract(dec_out, outputs)))
+      eps = 10*np.finfo(np.float32).eps
+      R1 = tf.reshape(to_rotmat(rs_dec_out), [-1, 3, 3])
+      R2 = tf.reshape(to_rotmat(rs_outputs), [-1, 3, 3])
+      RR = tf.matmul(R1, R2, transpose_a=True)
+      tr = tf.trace(RR)
+      d = tf.acos(tf.clip_by_value((tr-1)/2, np.float32(-1.0+eps), np.float32(1.0-eps)))
+      loss_angles = tf.reduce_mean(d)
+      reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)            
+      
+    self.loss         = loss_angles + sum(reg_losses)
     self.loss_summary = tf.summary.scalar('loss/loss', self.loss)
 
     # Gradients and SGD update operation for training the model.
     params = tf.trainable_variables()
 
-    opt = tf.train.GradientDescentOptimizer( self.learning_rate )
-
+    #opt = tf.train.GradientDescentOptimizer( self.learning_rate )
+    opt = tf.contrib.opt.NadamOptimizer(learning_rate=self.learning_rate, epsilon=1e-5)
     # Update all the trainable parameters
     gradients = tf.gradients( self.loss, params )
 

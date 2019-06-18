@@ -61,7 +61,7 @@ class ResidualWrapper(RNNCell):
 class LinearSpaceDecoderWrapper(RNNCell):
   """Operator adding a linear encoder to an RNN cell"""
 
-  def __init__(self, cell, output_size):
+  def __init__(self, cell, output_size, reg_lambda):
     """Create a cell with with a linear encoder in space.
 
     Args:
@@ -94,11 +94,12 @@ class LinearSpaceDecoderWrapper(RNNCell):
 
     self.w_out = tf.get_variable("proj_w_out",
         [insize, output_size],
-        dtype=tf.float32,
-        initializer=tf.random_uniform_initializer(minval=-0.04, maxval=0.04))
+        dtype=tf.float32,        
+        regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
+        initializer=tf.zeros_initializer())
     self.b_out = tf.get_variable("proj_b_out", [output_size],
         dtype=tf.float32,
-        initializer=tf.random_uniform_initializer(minval=-0.04, maxval=0.04))
+        initializer=tf.zeros_initializer())
 
     self.linear_output_size = output_size
 

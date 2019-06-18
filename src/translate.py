@@ -20,45 +20,47 @@ import data_utils
 import seq2seq_model
 
 # Learning
-tf.app.flags.DEFINE_float("learning_rate", .005, "Learning rate.")
-tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.95, "Learning rate is multiplied by this much. 1 means no decay.")
-tf.app.flags.DEFINE_integer("learning_rate_step", 10000, "Every this many steps, do decay.")
+tf.app.flags.DEFINE_float("learning_rate", .001, "Learning rate.")
+tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.025, "Learning rate is multiplied by this much. 1 means no decay.")
+tf.app.flags.DEFINE_float("reg_lambda", 0.0, "Weight of regularizer of linear layer.")
+tf.app.flags.DEFINE_integer("learning_rate_step", 1, "Every this many steps, do decay.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 5, "Clip gradients to this norm.")
-tf.app.flags.DEFINE_integer("batch_size", 16, "Batch size to use during training.")
-tf.app.flags.DEFINE_integer("iterations", int(1e5), "Iterations to train for.")
+tf.app.flags.DEFINE_integer("batch_size", 96, "Batch size to use during training.")
+tf.app.flags.DEFINE_integer("iterations", int(1e4), "Iterations to train for.")
 # Architecture
 tf.app.flags.DEFINE_string("architecture", "tied", "Seq2seq architecture to use: [basic, tied].")
 tf.app.flags.DEFINE_integer("size", 1024, "Size of each model layer.")
 tf.app.flags.DEFINE_integer("num_layers", 1, "Number of layers in the model.")
 tf.app.flags.DEFINE_integer("seq_length_in", 50, "Number of frames to feed into the encoder. 25 fps")
 tf.app.flags.DEFINE_integer("seq_length_out", 10, "Number of frames that the decoder has to predict. 25fps")
-tf.app.flags.DEFINE_boolean("omit_one_hot", False, "Whether to remove one-hot encoding from the data")
-tf.app.flags.DEFINE_boolean("residual_velocities", False, "Add a residual connection that effectively models velocities")
+tf.app.flags.DEFINE_boolean("omit_one_hot", True, "Whether to remove one-hot encoding from the data")
+tf.app.flags.DEFINE_boolean("residual_velocities", True, "Add a residual connection that effectively models velocities")
 # Directories
-tf.app.flags.DEFINE_string("data_dir", os.path.normpath("./data/h3.6m/dataset"), "Data directory")
-tf.app.flags.DEFINE_string("train_dir", os.path.normpath("./experiments/"), "Training directory.")
+tf.app.flags.DEFINE_string("data_dir", os.path.normpath("../data/h3.6m/dataset"), "Data directory")
+tf.app.flags.DEFINE_string("train_dir", os.path.normpath("../experiments/"), "Training directory.")
 
 tf.app.flags.DEFINE_string("action","all", "The action to train on. all means all the actions, all_periodic means walking, eating and smoking")
 tf.app.flags.DEFINE_string("loss_to_use","sampling_based", "The type of loss to use, supervised or sampling_based")
 
-tf.app.flags.DEFINE_integer("test_every", 1000, "How often to compute error on the test set.")
+tf.app.flags.DEFINE_integer("test_every", 50, "How often to compute error on the test set.")
 tf.app.flags.DEFINE_integer("save_every", 1000, "How often to compute error on the test set.")
 tf.app.flags.DEFINE_boolean("sample", False, "Set to True for sampling.")
 tf.app.flags.DEFINE_boolean("use_cpu", False, "Whether to use the CPU")
 tf.app.flags.DEFINE_integer("load", 0, "Try to load a previous checkpoint.")
 
 FLAGS = tf.app.flags.FLAGS
-
-train_dir = os.path.normpath(os.path.join( FLAGS.train_dir, FLAGS.action,
+timestamp = str(int(time.time()))
+train_dir = os.path.normpath(os.path.join( FLAGS.train_dir, timestamp[-3:], FLAGS.action,
   'out_{0}'.format(FLAGS.seq_length_out),
-  'iterations_{0}'.format(FLAGS.iterations),
+  'it_{0}'.format(FLAGS.iterations),
   FLAGS.architecture,
   FLAGS.loss_to_use,
-  'omit_one_hot' if FLAGS.omit_one_hot else 'one_hot',
-  'depth_{0}'.format(FLAGS.num_layers),
-  'size_{0}'.format(FLAGS.size),
+  'ooh' if FLAGS.omit_one_hot else 'one_hot',
+  'dep_{0}'.format(FLAGS.num_layers),
+  'siz_{0}'.format(FLAGS.size),
   'lr_{0}'.format(FLAGS.learning_rate),
-  'residual_vel' if FLAGS.residual_velocities else 'not_residual_vel'))
+  'lam_{0}'.format(FLAGS.reg_lambda),
+  'res' if FLAGS.residual_velocities else 'not_res'))
 
 summaries_dir = os.path.normpath(os.path.join( train_dir, "log" )) # Directory for TB summaries
 
@@ -80,6 +82,7 @@ def create_model(session, actions, sampling=False):
       len( actions ),
       not FLAGS.omit_one_hot,
       FLAGS.residual_velocities,
+      FLAGS.reg_lambda,
       dtype=tf.float32)
 
   if FLAGS.load <= 0:

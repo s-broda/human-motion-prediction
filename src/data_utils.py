@@ -158,7 +158,7 @@ def unNormalizeData(normalizedData, data_mean, data_std, dimensions_to_ignore, a
   stdMat = np.repeat(stdMat, T, axis=0)
   meanMat = data_mean.reshape((1, D))
   meanMat = np.repeat(meanMat, T, axis=0)
-  origData = np.multiply(origData, stdMat) + meanMat
+  origData = origData
   return origData
 
 
@@ -286,13 +286,13 @@ def normalize_data( data, data_mean, data_std, dim_to_use, actions, one_hot ):
   if not one_hot:
     # No one-hot encoding... no need to do anything special
     for key in data.keys():
-      data_out[ key ] = np.divide( (data[key] - data_mean), data_std )
+      data_out[ key ] = data[key]
       data_out[ key ] = data_out[ key ][ :, dim_to_use ]
 
   else:
     # TODO hard-coding 99 dimensions for un-normalized human poses
     for key in data.keys():
-      data_out[ key ] = np.divide( (data[key][:, 0:99] - data_mean), data_std )
+      data_out[ key ] = data[key][:, 0:99]
       data_out[ key ] = data_out[ key ][ :, dim_to_use ]
       data_out[ key ] = np.hstack( (data_out[key], data[key][:,-nactions:]) )
 
